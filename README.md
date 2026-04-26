@@ -19,7 +19,7 @@
 
 ## 主要特性
 
-- 支持 OpenAI、Gemini 接口规范和流式传输模式。
+- 支持 Gemini 接口、OpenAI 官方 `Responses API` 画图，以及兼容 OpenAI-like Chat 图片返回服务。
 - 整合 Vertex AI Anonymous 逆向提供商，免费无限*[1]的 4K 18MB PNG（无损压缩） 图片生成，开箱即用（需能访问 Google）。
 - 支持 LLM 函数调用工具，支持通过大语言模型模型阅读预设、整合修改以及图片生成的功能。
 - 灵活的参数配置，支持提示词级别的粒度控制，和方便拓展工具。
@@ -30,6 +30,28 @@
 - 支持为每个提示词指定不同的提供商。
 
 \*[1] 免费无限指次数不限，服务可用性视服务器实时资源占用情况而定。Vertex AI Anonymous 可将模型设置为 `gemini-3.1-flash-image-preview`，新模型往往拥有更充足的资源配额。
+
+## OpenAI 提供商说明
+
+- `OpenAI_Responses`：用于官方 OpenAI 图片生成，接口地址建议填写 `https://api.openai.com/v1/responses`。
+- `OpenAI_Responses` 推荐使用文本主模型，例如 `gpt-5.5`、`gpt-5`。插件会通过官方 `image_generation` 工具出图，而不是直接把 `gpt-image-*` 填进 `model` 字段。
+- `OpenAI_Responses` 当前优先支持非流式调用；即使误开流式配置，也会自动回退为非流式请求。
+- `OpenAI_Chat`：仅用于兼容返回 Markdown 图片链接或 data URL 的 OpenAI-like Chat 服务，不再视为官方 OpenAI 方案。
+
+最小可用官方 OpenAI 配置示例：
+
+```json
+{
+  "api_type": "OpenAI_Responses",
+  "api_url": "https://api.openai.com/v1/responses",
+  "model": "gpt-5.5",
+  "keys": ["sk-..."],
+  "stream": false
+}
+```
+
+- 文生图会自动发送 `input_text`。
+- 图生图会把插件收集到的参考图片自动转成 `input_image` 传给 OpenAI。
 
 ## 常用命令
 
