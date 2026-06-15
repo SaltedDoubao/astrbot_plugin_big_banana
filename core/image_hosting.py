@@ -6,6 +6,7 @@ from aiohttp import ClientSession
 from astrbot.api import logger
 
 from .data import ImageHostingConfig
+from .utils import decode_base64_data
 
 
 class R2ImageHoster:
@@ -66,9 +67,7 @@ class R2ImageHoster:
 
     @staticmethod
     def _decode_base64(b64_data: str) -> bytes:
-        import base64
-
-        return base64.b64decode(b64_data)
+        return decode_base64_data(b64_data)
 
     @staticmethod
     def _mime_to_ext(mime: str) -> str:

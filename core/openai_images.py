@@ -1,4 +1,3 @@
-import base64
 import json
 import math
 from io import BytesIO
@@ -13,6 +12,7 @@ from astrbot.api import logger
 from .base import BaseProvider
 from .data import ProviderConfig
 from .downloader import DEFAULT_BROWSER_HEADERS
+from .utils import decode_base64_data
 
 
 class OpenAIImagesProvider(BaseProvider):
@@ -33,7 +33,7 @@ class OpenAIImagesProvider(BaseProvider):
 
         if image_b64_list:
             mime, b64_data = image_b64_list[0]
-            raw_bytes = base64.b64decode(b64_data)
+            raw_bytes = decode_base64_data(b64_data)
             try:
                 with Image.open(BytesIO(raw_bytes)) as img:
                     w, h = img.size
@@ -225,7 +225,7 @@ class OpenAIImagesProvider(BaseProvider):
     def _normalize_image_payload(
         mime: str, b64_data: str, index: int
     ) -> tuple[str, bytes, str]:
-        raw_bytes = base64.b64decode(b64_data)
+        raw_bytes = decode_base64_data(b64_data)
         try:
             with Image.open(BytesIO(raw_bytes)) as img:
                 if getattr(img, "is_animated", False):
