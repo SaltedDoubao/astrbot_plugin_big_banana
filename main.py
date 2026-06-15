@@ -21,7 +21,12 @@ from .core.data import (
     ProviderConfig,
 )
 from .core.llm_tools import BigBananaPromptTool, BigBananaTool, remove_tools
-from .core.utils import clear_cache, read_file, save_images
+from .core.utils import (
+    clear_cache,
+    normalize_image_results,
+    read_file,
+    save_images,
+)
 
 # 提示词参数列表
 PARAMS_LIST = [
@@ -901,8 +906,8 @@ class BigBanana(Star):
             params=params, image_b64_list=image_b64_list
         )
 
-        # 再次检查图片结果是否为空
-        valid_results = [(mime, b64) for mime, b64 in (images_result or []) if b64]
+        # 再次检查并规范化图片结果，避免 provider 返回非标准 base64 导致后续崩溃
+        valid_results, invalid_result_count = normalize_image_results(images_result)
 
         if params.get("url", False):
             if result_urls:
@@ -915,7 +920,10 @@ class BigBanana(Star):
 
         if not valid_results:
             if not err:
-                err = "图片生成失败：响应中未包含图片数据"
+                if invalid_result_count > 0:
+                    err = "图片生成失败：响应中的图片 Base64 无效"
+                else:
+                    err = "图片生成失败：响应中未包含图片数据"
                 logger.error(err)
             return None, err, result_urls
 
