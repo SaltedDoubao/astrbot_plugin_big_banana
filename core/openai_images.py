@@ -126,8 +126,8 @@ class OpenAIImagesProvider(BaseProvider):
                     proxy=self.def_common_config.proxy,
                 )
 
-            result = response.json()
             if response.status_code == 200:
+                result = response.json()
                 images_result, err = await self._parse_images_response(
                     result, provider_config.api_url
                 )
@@ -141,12 +141,16 @@ class OpenAIImagesProvider(BaseProvider):
             logger.error(
                 f"[BIG BANANA] OpenAI Images 图片生成失败，状态码: {response.status_code}, 响应内容: {response.text[:1024]}"
             )
-            return (
-                None,
-                response.status_code,
-                self._extract_error_message(result)
-                or f"图片生成失败: 状态码 {response.status_code}",
-            )
+            error_msg = f"图片生成失败: 状态码 {response.status_code}"
+            if response.status_code == 524:
+                error_msg = "图片生成超时，请稍后重试或降低图片复杂度"
+            else:
+                try:
+                    result = response.json()
+                    error_msg = self._extract_error_message(result) or error_msg
+                except:
+                    pass
+            return None, response.status_code, error_msg
         except Timeout as e:
             logger.error(f"[BIG BANANA] OpenAI Images 网络请求超时: {e}")
             return None, 408, "图片生成失败：响应超时"
