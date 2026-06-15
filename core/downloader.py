@@ -14,29 +14,53 @@ from astrbot.api import logger
 
 from .data import CommonConfig
 
+DEFAULT_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": "image/*,*/*;q=0.8",
+    "Accept-Encoding": "identity",
+}
+
 
 class Downloader:
     def __init__(self, session: AsyncSession, common_config: CommonConfig):
         self.session = session
         self.def_common_config = common_config
 
-    async def fetch_image(self, url: str) -> tuple[str, str] | None:
+    async def fetch_image(
+        self,
+        url: str,
+        headers: dict | None = None,
+        impersonate: str | None = None,
+    ) -> tuple[str, str] | None:
         """下载单张图片并转换为 (mime, base64)"""
         # 重试逻辑
         for _ in range(3):
-            content, success = await self._download_image(url)
+            content, success = await self._download_image(
+                url, headers=headers, impersonate=impersonate
+            )
             if content is not None:
                 return content
             if content is None and success:
                 return None
 
-    async def fetch_images(self, image_urls: list[str]) -> list[tuple[str, str]]:
+    async def fetch_images(
+        self,
+        image_urls: list[str],
+        headers: dict | None = None,
+        impersonate: str | None = None,
+    ) -> list[tuple[str, str]]:
         """下载多张图片并转换为 (mime, base64) 列表"""
         image_b64_list = []
         for url in image_urls:
             # 重试逻辑
             for _ in range(3):
-                content, success = await self._download_image(url)
+                content, success = await self._download_image(
+                    url, headers=headers, impersonate=impersonate
+                )
                 if content is not None:
                     image_b64_list.append(content)
                     break  # 成功就跳出重试
@@ -61,17 +85,26 @@ class Downloader:
             b64 = base64.b64encode(image_bytes).decode("utf-8")
             return ("image/jpeg", b64)
 
-    async def _download_image(self, url: str) -> tuple[tuple[str, str] | None, bool]:
+    async def _download_image(
+        self,
+        url: str,
+        headers: dict | None = None,
+        impersonate: str | None = None,
+    ) -> tuple[tuple[str, str] | None, bool]:
         """ 下载图片并返回 (mime, base64) 和是否下载成功的标志"""
+        request_kwargs: dict = {
+            "proxy": self.def_common_config.proxy,
+            "timeout": 30,
+        }
+        if headers:
+            request_kwargs["headers"] = headers
+        if impersonate:
+            request_kwargs["impersonate"] = impersonate
         try:
-            response = await self.session.get(
-                url,
-                proxy=self.def_common_config.proxy,
-                timeout=30,
-            )
+            response = await self.session.get(url, **request_kwargs)
             if response.status_code != 200:
                 logger.warning(
-                    f"[BIG BANANA] 图片下载失败，状态码: {response.status_code}"
+                    f"[BIG BANANA] 图片下载失败，状态码: {response.status_code}，URL: {url}"
                 )
                 return None, False
             if not response.content or len(response.content) > 50 * 1024 * 1024:
@@ -81,10 +114,11 @@ class Downloader:
             return content, True
         except (SSLError, CertificateVerifyError):
             # 关闭SSL验证
-            response = await self.session.get(url, timeout=30, verify=False)
+            ssl_kwargs = {**request_kwargs, "verify": False}
+            response = await self.session.get(url, **ssl_kwargs)
             if response.status_code != 200:
                 logger.warning(
-                    f"[BIG BANANA] 图片下载失败，状态码: {response.status_code}"
+                    f"[BIG BANANA] 图片下载失败，状态码: {response.status_code}，URL: {url}"
                 )
                 return None, False
             if not response.content or len(response.content) > 50 * 1024 * 1024:

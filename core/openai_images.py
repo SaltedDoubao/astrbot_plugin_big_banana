@@ -2,6 +2,7 @@ import base64
 import json
 import math
 from io import BytesIO
+from urllib.parse import urlparse
 
 from curl_cffi import CurlMime
 from curl_cffi.requests.exceptions import Timeout
@@ -11,6 +12,7 @@ from astrbot.api import logger
 
 from .base import BaseProvider
 from .data import ProviderConfig
+from .downloader import DEFAULT_BROWSER_HEADERS
 
 
 class OpenAIImagesProvider(BaseProvider):
@@ -118,6 +120,7 @@ class OpenAIImagesProvider(BaseProvider):
                         "prompt": params.get("prompt", "anything"),
                         "n": params.get("n", 1),
                         "size": size,
+                        "response_format": "b64_json",
                     },
                     timeout=self.def_common_config.timeout,
                     proxy=self.def_common_config.proxy,
@@ -125,8 +128,10 @@ class OpenAIImagesProvider(BaseProvider):
 
             result = response.json()
             if response.status_code == 200:
-                images_result, err = self._parse_images_response(result)
-                if images_result:
+                images_result, err = await self._parse_images_response(
+                    result, provider_config.api_url
+                )
+                if images_result or (params.get("url", False) and self.last_result_urls):
                     return images_result, 200, None
                 logger.warning(
                     f"[BIG BANANA] OpenAI Images 请求成功，但未返回图片数据, 响应内容: {response.text[:1024]}"
@@ -187,6 +192,7 @@ class OpenAIImagesProvider(BaseProvider):
             "prompt": params.get("prompt", "anything"),
             "n": params.get("n", 1),
             "size": size,
+            "response_format": "b64_json",
         }
         multipart = CurlMime()
         for index, (mime, b64_data) in enumerate(image_b64_list, start=1):
@@ -236,17 +242,43 @@ class OpenAIImagesProvider(BaseProvider):
             raise ValueError("图片生成失败：存在不支持的输入图片格式，无法上传到 OpenAI Images API")
 
     @staticmethod
-    def _parse_images_response(
+    def _build_download_headers(api_url: str) -> dict:
+        headers = dict(DEFAULT_BROWSER_HEADERS)
+        parsed = urlparse(api_url)
+        if parsed.scheme and parsed.netloc:
+            headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
+        return headers
+
+    async def _parse_images_response(
+        self,
         result: dict,
+        api_url: str,
     ) -> tuple[list[tuple[str, str]] | None, str | None]:
         image_result: list[tuple[str, str]] = []
+        image_urls: list[str] = []
         for item in result.get("data", []):
+            if not isinstance(item, dict):
+                continue
             b64_data = item.get("b64_json")
-            if b64_data:
+            if isinstance(b64_data, str) and b64_data:
                 image_result.append(("image/png", b64_data))
+                continue
+            image_url = item.get("url")
+            if isinstance(image_url, str) and image_url:
+                image_urls.append(image_url)
+        self.last_result_urls = list(image_urls)
+        if image_urls:
+            download_headers = self._build_download_headers(api_url)
+            image_result.extend(
+                await self.downloader.fetch_images(
+                    image_urls,
+                    headers=download_headers,
+                    impersonate="chrome131",
+                )
+            )
         if image_result:
             return image_result, None
-        return None, OpenAIImagesProvider._extract_error_message(result)
+        return None, self._extract_error_message(result)
 
     @staticmethod
     def _extract_error_message(result: dict) -> str | None:
