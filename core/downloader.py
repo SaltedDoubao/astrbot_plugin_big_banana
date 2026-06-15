@@ -69,7 +69,7 @@ class Downloader:
         return image_b64_list
 
     @staticmethod
-    def _handle_image(image_bytes: bytes) -> tuple[str, str]:
+    def _handle_image(image_bytes: bytes) -> tuple[str, str] | None:
         """ 尝试把图片统一转换成 jpeg 格式, 返回 (mime, base64) """
         try:
             with Image.open(BytesIO(image_bytes)) as img:
@@ -82,8 +82,7 @@ class Downloader:
                 return ("image/jpeg", b64)
         except Exception as e:
             logger.warning(f"[BIG BANANA] 图片处理失败: {e}")
-            b64 = base64.b64encode(image_bytes).decode("utf-8")
-            return ("image/jpeg", b64)
+            return None
 
     async def _download_image(
         self,

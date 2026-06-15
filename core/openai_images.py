@@ -102,6 +102,7 @@ class OpenAIImagesProvider(BaseProvider):
     ) -> tuple[list[tuple[str, str]] | None, int | None, str | None]:
         headers = {"Authorization": f"Bearer {api_key}"}
         size = self._determine_size(params, image_b64_list)
+        url_only = bool(params.get("url", False))
         try:
             if image_b64_list:
                 response = await self._post_image_edits(
@@ -110,18 +111,16 @@ class OpenAIImagesProvider(BaseProvider):
                     image_b64_list=image_b64_list,
                     params=params,
                     size=size,
+                    url_only=url_only,
                 )
             else:
+                payload = self._build_request_payload(
+                    provider_config.model, params, size, url_only
+                )
                 response = await self.session.post(
                     url=self._build_api_url(provider_config.api_url, "generations"),
                     headers={**headers, "Content-Type": "application/json"},
-                    json={
-                        "model": provider_config.model,
-                        "prompt": params.get("prompt", "anything"),
-                        "n": params.get("n", 1),
-                        "size": size,
-                        "response_format": "b64_json",
-                    },
+                    json=payload,
                     timeout=self.def_common_config.timeout,
                     proxy=self.def_common_config.proxy,
                 )
@@ -129,9 +128,9 @@ class OpenAIImagesProvider(BaseProvider):
             result = response.json()
             if response.status_code == 200:
                 images_result, err = await self._parse_images_response(
-                    result, provider_config.api_url
+                    result, provider_config.api_url, url_only
                 )
-                if images_result or (params.get("url", False) and self.last_result_urls):
+                if images_result is not None or (url_only and self.last_result_urls):
                     return images_result, 200, None
                 logger.warning(
                     f"[BIG BANANA] OpenAI Images 请求成功，但未返回图片数据, 响应内容: {response.text[:1024]}"
@@ -183,17 +182,14 @@ class OpenAIImagesProvider(BaseProvider):
         image_b64_list: list[tuple[str, str]],
         params: dict,
         size: str,
+        url_only: bool,
     ):
         logger.info(
             f"[BIG BANANA] OpenAI Images 正在请求 /images/edits，上传参考图 {len(image_b64_list)} 张"
         )
-        data = {
-            "model": provider_config.model,
-            "prompt": params.get("prompt", "anything"),
-            "n": params.get("n", 1),
-            "size": size,
-            "response_format": "b64_json",
-        }
+        data = self._build_request_payload(
+            provider_config.model, params, size, url_only
+        )
         multipart = CurlMime()
         for index, (mime, b64_data) in enumerate(image_b64_list, start=1):
             file_name, image_bytes, file_mime = self._normalize_image_payload(
@@ -220,6 +216,20 @@ class OpenAIImagesProvider(BaseProvider):
     @staticmethod
     def _build_api_url(api_url: str, endpoint: str) -> str:
         return f"{api_url.rstrip('/')}/{endpoint}"
+
+    @staticmethod
+    def _build_request_payload(
+        model: str, params: dict, size: str, url_only: bool
+    ) -> dict:
+        payload = {
+            "model": model,
+            "prompt": params.get("prompt", "anything"),
+            "n": params.get("n", 1),
+            "size": size,
+        }
+        if not model.lower().startswith("gpt-image"):
+            payload["response_format"] = "url" if url_only else "b64_json"
+        return payload
 
     @staticmethod
     def _normalize_image_payload(
@@ -253,6 +263,7 @@ class OpenAIImagesProvider(BaseProvider):
         self,
         result: dict,
         api_url: str,
+        url_only: bool,
     ) -> tuple[list[tuple[str, str]] | None, str | None]:
         image_result: list[tuple[str, str]] = []
         image_urls: list[str] = []
@@ -267,6 +278,8 @@ class OpenAIImagesProvider(BaseProvider):
             if isinstance(image_url, str) and image_url:
                 image_urls.append(image_url)
         self.last_result_urls = list(image_urls)
+        if url_only and image_urls:
+            return [], None
         if image_urls:
             download_headers = self._build_download_headers(api_url)
             image_result.extend(

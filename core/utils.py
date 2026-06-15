@@ -4,7 +4,10 @@ import mimetypes
 import random
 import re
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
+
+from PIL import Image
 
 from astrbot.api import logger
 
@@ -50,6 +53,15 @@ def decode_base64_data(b64: str) -> bytes:
             raise ValueError("base64 数据格式无效") from urlsafe_error
 
 
+def validate_image_bytes(image_bytes: bytes) -> None:
+    """校验字节内容确实是 Pillow 可识别的图片。"""
+    try:
+        with Image.open(BytesIO(image_bytes)) as img:
+            img.verify()
+    except Exception as e:
+        raise ValueError("图片数据格式无效") from e
+
+
 def normalize_image_results(
     image_result: list[tuple[str, str]] | None,
 ) -> tuple[list[tuple[str, str]], int]:
@@ -61,7 +73,8 @@ def normalize_image_results(
             continue
         try:
             normalized_b64 = normalize_base64_data(b64)
-            decode_base64_data(normalized_b64)
+            image_bytes = decode_base64_data(normalized_b64)
+            validate_image_bytes(image_bytes)
         except ValueError as e:
             invalid_result_count += 1
             logger.warning(
